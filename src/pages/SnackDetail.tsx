@@ -11,6 +11,7 @@ import {
   Loader2,
   Star,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
@@ -103,6 +104,18 @@ export default function SnackDetail() {
   const [commentRating, setCommentRating] = useState(5);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [localComments, setLocalComments] = useState<Comment[]>([]);
+  const [showCorrectionDialog, setShowCorrectionDialog] = useState(false);
+  const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+  const [correctionForm, setCorrectionForm] = useState({
+    calories: 0,
+    protein: 0,
+    fat: 0,
+    sugar: 0,
+    sodium: 0,
+    carbohydrates: 0,
+    fiber: 0,
+    ingredients: "",
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -194,6 +207,59 @@ export default function SnackDetail() {
       setCommentRating(5);
     } finally {
       setCommentSubmitting(false);
+    }
+  }
+
+  function openCorrectionDialog() {
+    if (!snack) return;
+    setCorrectionForm({
+      calories: snack.calories,
+      protein: snack.protein,
+      fat: snack.fat,
+      sugar: snack.sugar,
+      sodium: snack.sodium,
+      carbohydrates: snack.carbohydrates || 0,
+      fiber: snack.fiber || 0,
+      ingredients: (snack.ingredients || [])
+        .map((i) => i.name + (i.isHarmful ? "*" : ""))
+        .join(", "),
+    });
+    setShowCorrectionDialog(true);
+  }
+
+  async function handleSubmitCorrection() {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    try {
+      setCorrectionSubmitting(true);
+      const ingredientsList = correctionForm.ingredients
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => {
+          const isHarmful = s.endsWith("*");
+          return { name: isHarmful ? s.slice(0, -1) : s, isHarmful };
+        });
+
+      await api.post(`/snacks/${id}/correction`, {
+        calories: Number(correctionForm.calories),
+        protein: Number(correctionForm.protein),
+        fat: Number(correctionForm.fat),
+        sugar: Number(correctionForm.sugar),
+        sodium: Number(correctionForm.sodium),
+        carbohydrates: Number(correctionForm.carbohydrates),
+        fiber: Number(correctionForm.fiber),
+        ingredients: ingredientsList,
+      });
+      setShowCorrectionDialog(false);
+      alert("修正已提交，等待管理员审核");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "提交失败";
+      alert(msg);
+    } finally {
+      setCorrectionSubmitting(false);
     }
   }
 
@@ -300,6 +366,15 @@ export default function SnackDetail() {
                 <Plus className="h-4 w-4" />
                 添加到饮食计划
               </button>
+              {user && (
+                <button
+                  onClick={openCorrectionDialog}
+                  className="btn-secondary gap-2"
+                >
+                  <Pencil className="h-4 w-4" />
+                  修正成分
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -483,6 +558,119 @@ export default function SnackDetail() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   "确认添加"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCorrectionDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">修正成分信息</h3>
+              <button
+                onClick={() => setShowCorrectionDialog(false)}
+                className="text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-zinc-500 mb-4">
+              修改你发现不正确的营养成分，提交后需管理员审核通过才会更新。名称后加 <span className="font-mono bg-zinc-100 px-1"> *</span> 标记有害配料。
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">热量 (kcal)</label>
+                <input
+                  type="number"
+                  value={correctionForm.calories}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, calories: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">蛋白质 (g)</label>
+                <input
+                  type="number"
+                  value={correctionForm.protein}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, protein: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">脂肪 (g)</label>
+                <input
+                  type="number"
+                  value={correctionForm.fat}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, fat: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">糖分 (g)</label>
+                <input
+                  type="number"
+                  value={correctionForm.sugar}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, sugar: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">钠 (mg)</label>
+                <input
+                  type="number"
+                  value={correctionForm.sodium}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, sodium: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">碳水化合物 (g)</label>
+                <input
+                  type="number"
+                  value={correctionForm.carbohydrates}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, carbohydrates: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">纤维 (g)</label>
+                <input
+                  type="number"
+                  value={correctionForm.fiber}
+                  onChange={(e) => setCorrectionForm({ ...correctionForm, fiber: Number(e.target.value) })}
+                  className="input-field"
+                />
+              </div>
+            </div>
+            <div className="mb-4">
+              <label className="block text-xs text-zinc-500 mb-1">配料表（逗号分隔，有害成分加 * 后缀）</label>
+              <textarea
+                value={correctionForm.ingredients}
+                onChange={(e) => setCorrectionForm({ ...correctionForm, ingredients: e.target.value })}
+                rows={3}
+                className="input-field resize-none"
+                placeholder="例如：可可液块*, 白砂糖, 可可脂, 大豆磷脂"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCorrectionDialog(false)}
+                className="btn-secondary flex-1"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSubmitCorrection}
+                disabled={correctionSubmitting}
+                className="btn-primary flex-1"
+              >
+                {correctionSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "提交修正"
                 )}
               </button>
             </div>

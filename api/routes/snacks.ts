@@ -565,8 +565,8 @@ router.post('/:id/submit-review', authMiddleware, (req: Request, res: Response):
     }
 
     const existing = db
-      .prepare('SELECT id FROM reviews WHERE snack_id = ? AND status = ?')
-      .get(snackId, 'pending') as any;
+      .prepare('SELECT id FROM reviews WHERE snack_id = ? AND status = ? AND type = ?')
+      .get(snackId, 'pending', 'new_snack') as any;
 
     if (existing) {
       res.status(400).json({ success: false, error: '该零食正在审核中' });
@@ -574,10 +574,52 @@ router.post('/:id/submit-review', authMiddleware, (req: Request, res: Response):
     }
 
     db.prepare(
-      'INSERT INTO reviews (snack_id, submitted_by, status) VALUES (?, ?, ?)'
-    ).run(snackId, req.user.userId, 'pending');
+      'INSERT INTO reviews (snack_id, type, submitted_by, status) VALUES (?, ?, ?, ?)'
+    ).run(snackId, 'new_snack', req.user.userId, 'pending');
 
     res.json({ success: true, message: '已提交审核' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: '服务器错误' });
+  }
+});
+
+router.post('/:id/correction', authMiddleware, (req: Request, res: Response): void => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: '未授权' });
+      return;
+    }
+
+    const snackId = parseInt(req.params.id, 10);
+    const snack = db.prepare('SELECT * FROM snacks WHERE id = ?').get(snackId) as any;
+
+    if (!snack) {
+      res.status(404).json({ success: false, error: '零食不存在' });
+      return;
+    }
+
+    const correction = req.body;
+    if (!correction || Object.keys(correction).length === 0) {
+      res.status(400).json({ success: false, error: '修正内容不能为空' });
+      return;
+    }
+
+    const existing = db
+      .prepare('SELECT id FROM reviews WHERE snack_id = ? AND status = ? AND type = ?')
+      .get(snackId, 'pending', 'correction') as any;
+
+    if (existing) {
+      res.status(400).json({ success: false, error: '该零食已有待审核的修正' });
+      return;
+    }
+
+    const correctionData = JSON.stringify(correction);
+
+    db.prepare(
+      'INSERT INTO reviews (snack_id, type, correction_data, submitted_by, status) VALUES (?, ?, ?, ?, ?)'
+    ).run(snackId, 'correction', correctionData, req.user.userId, 'pending');
+
+    res.status(201).json({ success: true, message: '修正已提交审核' });
   } catch (error) {
     res.status(500).json({ success: false, error: '服务器错误' });
   }

@@ -28,6 +28,8 @@ export interface Comment {
 export interface Review {
   id: number;
   snackId: number;
+  type: 'new_snack' | 'correction';
+  correctionData?: string;
   submittedBy: number;
   status: 'pending' | 'approved' | 'rejected';
   reviewerId?: number;

@@ -10,14 +10,21 @@ import {
   Cookie,
   User,
   Calendar,
+  FilePenLine,
+  PackagePlus,
+  ArrowRight,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type ReviewStatus = "pending" | "approved" | "rejected";
+type ReviewType = "new_snack" | "correction";
 
 interface ReviewItem {
   id: number;
   snackId: number;
+  type: ReviewType;
+  correctionData?: string;
   snackName: string;
   snackBrand: string;
   snackImage: string;
@@ -32,6 +39,8 @@ interface ReviewItem {
 
 interface ReviewDetail {
   id: number;
+  type: ReviewType;
+  correction?: Record<string, any> | null;
   snack: {
     id: number;
     name: string;
@@ -67,14 +76,25 @@ interface Pagination {
   totalPages: number;
 }
 
-const tabs: { key: ReviewStatus; label: string }[] = [
+const statusTabs: { key: ReviewStatus; label: string }[] = [
   { key: "pending", label: "待审核" },
   { key: "approved", label: "已通过" },
   { key: "rejected", label: "已驳回" },
 ];
 
+const nutritionFields = [
+  { key: "calories", label: "热量", unit: "kcal" },
+  { key: "sugar", label: "糖分", unit: "g" },
+  { key: "fat", label: "脂肪", unit: "g" },
+  { key: "sodium", label: "钠", unit: "mg" },
+  { key: "protein", label: "蛋白质", unit: "g" },
+  { key: "carbohydrates", label: "碳水", unit: "g" },
+  { key: "fiber", label: "纤维", unit: "g" },
+];
+
 export default function AdminReviews() {
   const [activeTab, setActiveTab] = useState<ReviewStatus>("pending");
+  const [activeType, setActiveType] = useState<ReviewType | "all">("all");
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({
@@ -98,6 +118,9 @@ export default function AdminReviews() {
         page: String(pagination.page),
         limit: String(pagination.limit),
       });
+      if (activeType !== "all") {
+        params.set("type", activeType);
+      }
       const res = await api.get<{
         success: boolean;
         data: { reviews: ReviewItem[]; pagination: Pagination };
@@ -113,7 +136,7 @@ export default function AdminReviews() {
 
   useEffect(() => {
     fetchReviews();
-  }, [activeTab, pagination.page]);
+  }, [activeTab, activeType, pagination.page]);
 
   const viewDetail = async (id: number) => {
     try {
@@ -128,7 +151,11 @@ export default function AdminReviews() {
   };
 
   const handleApprove = async (id: number) => {
-    if (!confirm("确定通过此审核？")) return;
+    const review = reviews.find((r) => r.id === id);
+    const msg = review?.type === "correction"
+      ? "确定通过此修正？通过后将更新原零食数据。"
+      : "确定通过此审核？";
+    if (!confirm(msg)) return;
     setProcessing(true);
     try {
       await api.post(`/admin/reviews/${id}/approve`);
@@ -204,30 +231,88 @@ export default function AdminReviews() {
     }
   };
 
+  const typeBadge = (type: ReviewType) => {
+    if (type === "correction") {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+          <FilePenLine className="h-3 w-3" />
+          成分修正
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+        <PackagePlus className="h-3 w-3" />
+        新零食
+      </span>
+    );
+  };
+
+  function DiffRow({ label, oldVal, newVal, unit }: { label: string; oldVal: number | string; newVal: number | string; unit: string }) {
+    const changed = String(oldVal) !== String(newVal);
+    return (
+      <div className={cn("flex items-center gap-2 py-1.5 px-2 rounded text-sm", changed && "bg-amber-50")}>
+        <span className="text-zinc-500 w-16 shrink-0">{label}</span>
+        <span className={cn("w-20 text-right", changed ? "text-zinc-400 line-through" : "text-zinc-900 font-medium")}>
+          {oldVal} {unit}
+        </span>
+        {changed && <ArrowRight className="h-3 w-3 text-amber-500 shrink-0" />}
+        <span className={cn("w-20 text-right", changed ? "text-amber-700 font-semibold" : "text-zinc-900 font-medium")}>
+          {newVal} {unit}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-zinc-900">审核中心</h1>
-        <p className="text-zinc-500 mt-1">审核用户提交的零食信息</p>
+        <p className="text-zinc-500 mt-1">审核用户提交的零食信息和成分修正</p>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-zinc-200">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => {
-              setActiveTab(tab.key);
-              setPagination((p) => ({ ...p, page: 1 }));
-            }}
-            className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab.key
-                ? "border-blue-500 text-blue-600"
-                : "border-transparent text-zinc-500 hover:text-zinc-700"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        <div className="flex items-center gap-1 border-b border-zinc-200">
+          {statusTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === tab.key
+                  ? "border-blue-500 text-blue-600"
+                  : "border-transparent text-zinc-500 hover:text-zinc-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 bg-zinc-100 rounded-lg p-1">
+          {([
+            { key: "all", label: "全部" },
+            { key: "new_snack", label: "新零食" },
+            { key: "correction", label: "成分修正" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setActiveType(t.key);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                activeType === t.key
+                  ? "bg-white text-zinc-900 shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-700"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
@@ -258,10 +343,11 @@ export default function AdminReviews() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-medium text-zinc-900 truncate">
                           {review.snackName}
                         </h3>
+                        {typeBadge(review.type)}
                         {statusBadge(review.status)}
                       </div>
                       <p className="text-sm text-zinc-500 mb-2">
@@ -359,9 +445,12 @@ export default function AdminReviews() {
           />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden m-4">
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
-              <h2 className="text-lg font-semibold text-zinc-900">
-                审核详情 #{detailReview.id}
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-zinc-900">
+                  审核详情 #{detailReview.id}
+                </h2>
+                {typeBadge(detailReview.type)}
+              </div>
               <button
                 onClick={() => setShowDetail(false)}
                 className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
@@ -398,94 +487,151 @@ export default function AdminReviews() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-xs text-zinc-500 mb-1">分类</p>
-                  <p className="text-sm font-medium text-zinc-900">
-                    {detailReview.snack.category || "-"}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-xs text-zinc-500 mb-1">每份规格</p>
-                  <p className="text-sm font-medium text-zinc-900">
-                    {detailReview.snack.servingSize || "-"}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-xs text-zinc-500 mb-1">健康评分</p>
-                  <p className="text-sm font-medium text-zinc-900">
-                    {detailReview.snack.healthScore}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-xs text-zinc-500 mb-1">热量</p>
-                  <p className="text-sm font-medium text-zinc-900">
-                    {detailReview.snack.calories} kcal
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">糖分</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.sugar} g
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">脂肪</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.fat} g
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">钠</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.sodium} mg
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">蛋白质</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.protein} g
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">碳水化合物</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.carbohydrates} g
-                  </span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-500">纤维</span>
-                  <span className="text-zinc-900 font-medium">
-                    {detailReview.snack.fiber} g
-                  </span>
-                </div>
-              </div>
-
-              {detailReview.snack.ingredients &&
-                detailReview.snack.ingredients.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-zinc-700 mb-2">
-                      配料
+              {detailReview.type === "correction" && detailReview.correction ? (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm font-medium text-blue-800 mb-1">
+                      成分修正对比
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {detailReview.snack.ingredients.map((ing) => (
-                        <span
-                          key={ing.id}
-                          className={`inline-flex px-2.5 py-1 rounded-full text-xs ${
-                            ing.isHarmful
-                              ? "bg-red-50 text-red-700"
-                              : "bg-zinc-100 text-zinc-700"
-                          }`}
-                        >
-                          {ing.name}
-                        </span>
-                      ))}
+                    <p className="text-xs text-blue-600">
+                      以下为修正前后数据对比，高亮项为修改内容
+                    </p>
+                  </div>
+                  <div className="bg-zinc-50 rounded-lg p-3 space-y-1">
+                    <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2 px-2">
+                      <span className="w-16">字段</span>
+                      <span className="w-20 text-right">当前值</span>
+                      <span className="w-3" />
+                      <span className="w-20 text-right">修正值</span>
+                    </div>
+                    {nutritionFields.map((f) => (
+                      <DiffRow
+                        key={f.key}
+                        label={f.label}
+                        oldVal={(detailReview.snack as any)[f.key] ?? 0}
+                        newVal={detailReview.correction[f.key] ?? (detailReview.snack as any)[f.key] ?? 0}
+                        unit={f.unit}
+                      />
+                    ))}
+                  </div>
+
+                  {detailReview.correction.ingredients && (
+                    <div>
+                      <p className="text-sm font-medium text-zinc-700 mb-2">
+                        修正后配料
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(detailReview.correction.ingredients as { name: string; isHarmful: boolean }[]).map((ing, idx) => (
+                          <span
+                            key={idx}
+                            className={`inline-flex px-2.5 py-1 rounded-full text-xs ${
+                              ing.isHarmful
+                                ? "bg-red-50 text-red-700"
+                                : "bg-zinc-100 text-zinc-700"
+                            }`}
+                          >
+                            {ing.name}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-400 mt-2">
+                        当前配料：{(detailReview.snack.ingredients || []).map((i) => i.name).join("、")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-zinc-50 rounded-lg p-3">
+                      <p className="text-xs text-zinc-500 mb-1">分类</p>
+                      <p className="text-sm font-medium text-zinc-900">
+                        {detailReview.snack.category || "-"}
+                      </p>
+                    </div>
+                    <div className="bg-zinc-50 rounded-lg p-3">
+                      <p className="text-xs text-zinc-500 mb-1">每份规格</p>
+                      <p className="text-sm font-medium text-zinc-900">
+                        {detailReview.snack.servingSize || "-"}
+                      </p>
+                    </div>
+                    <div className="bg-zinc-50 rounded-lg p-3">
+                      <p className="text-xs text-zinc-500 mb-1">健康评分</p>
+                      <p className="text-sm font-medium text-zinc-900">
+                        {detailReview.snack.healthScore}
+                      </p>
+                    </div>
+                    <div className="bg-zinc-50 rounded-lg p-3">
+                      <p className="text-xs text-zinc-500 mb-1">热量</p>
+                      <p className="text-sm font-medium text-zinc-900">
+                        {detailReview.snack.calories} kcal
+                      </p>
                     </div>
                   </div>
-                )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">糖分</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.sugar} g
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">脂肪</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.fat} g
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">钠</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.sodium} mg
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">蛋白质</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.protein} g
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">碳水化合物</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.carbohydrates} g
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-zinc-100">
+                      <span className="text-zinc-500">纤维</span>
+                      <span className="text-zinc-900 font-medium">
+                        {detailReview.snack.fiber} g
+                      </span>
+                    </div>
+                  </div>
+
+                  {detailReview.snack.ingredients &&
+                    detailReview.snack.ingredients.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-zinc-700 mb-2">
+                          配料
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {detailReview.snack.ingredients.map((ing) => (
+                            <span
+                              key={ing.id}
+                              className={`inline-flex px-2.5 py-1 rounded-full text-xs ${
+                                ing.isHarmful
+                                  ? "bg-red-50 text-red-700"
+                                  : "bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              {ing.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                </>
+              )}
 
               <div className="bg-zinc-50 rounded-lg p-4 text-sm space-y-2">
                 <div className="flex items-center gap-2 text-zinc-600">
@@ -522,7 +668,7 @@ export default function AdminReviews() {
                   className="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50"
                 >
                   <Check className="h-4 w-4" />
-                  通过
+                  {detailReview.type === "correction" ? "通过修正" : "通过"}
                 </button>
                 <button
                   onClick={() => {

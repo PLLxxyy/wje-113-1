@@ -112,6 +112,8 @@ function initTables() {
     CREATE TABLE IF NOT EXISTS reviews (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       snack_id INTEGER NOT NULL,
+      type TEXT DEFAULT 'new_snack',
+      correction_data TEXT,
       submitted_by INTEGER NOT NULL,
       status TEXT DEFAULT 'pending',
       reviewer_id INTEGER,
@@ -153,6 +155,15 @@ function initTables() {
     CREATE INDEX IF NOT EXISTS idx_diet_user_date ON diet_items(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
   `);
+
+  const cols = db.prepare("PRAGMA table_info(reviews)").all() as { name: string }[];
+  if (!cols.some(c => c.name === 'type')) {
+    db.exec("ALTER TABLE reviews ADD COLUMN type TEXT DEFAULT 'new_snack'");
+  }
+  if (!cols.some(c => c.name === 'correction_data')) {
+    db.exec("ALTER TABLE reviews ADD COLUMN correction_data TEXT");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_reviews_type ON reviews(type)");
 }
 
 function seedData() {
